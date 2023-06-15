@@ -1,9 +1,9 @@
 import ssmv
-ssmv.Connection().test()
-i = 0
-
-# ssmv.CONNECTION.test()
+conn = ssmv.Connection()
+conn.test()
+conn.test()
+# i = 0
 # while True:
 #     i += 1
-#     ssmv.CONNECTION.test()
+#     conn.test()
 #     print(i)

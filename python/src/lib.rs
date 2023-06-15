@@ -77,61 +77,17 @@ impl Connection{
 
 }
 
-
 // #[pyfunction]
-// fn send(verts: PyReadonlyArray2<f32>, faces: PyReadonlyArray2<i32>){
-//     let addr = "localhost:6142".to_socket_addrs().unwrap().next().unwrap();
-//     let timeout = std::time::Duration::from_millis(50);
-//     let boot = std::time::Duration::from_secs(5);
+// fn test<'py>(py: Python<'py>) -> PyResult<()>{
+    
+//     // send(verts.readonly(), faces.readonly());
 
-//     let verts = verts.as_array().to_owned();
-//     let faces = faces.as_array().to_owned();
-    
-//     let message = Message::Mesh { verts, faces };
-    
-//     match TcpStream::connect_timeout(&addr, timeout){
-//         Ok(mut stream) => {
-//             message.send(&mut stream).unwrap();
-//         },
-//         Err(_) => {
-//             std::process::Command::new(r"python")
-//                 .arg("-c")
-//                 .arg("import ssmv; ssmv.run()")
-//                 .stdout(Stdio::null())
-//                 .spawn().unwrap();
-//             let mut stream = TcpStream::connect_timeout(&addr, boot).unwrap();
-//             message.send(&mut stream).unwrap();
-//         },
-//     };
+//     Ok(())
 // }
-
-#[pyfunction]
-fn test<'py>(py: Python<'py>) -> PyResult<()>{
-    let verts = array![
-        [0., 0., 0.],
-        [1., 0., 0.],
-        [0., 1., 0.],
-    ];
-
-    let faces = array![
-        [0, 1, 2],
-    ];
-
-    let verts = PyArray::from_owned_array(py, verts);
-    let faces = PyArray::from_owned_array(py, faces);
-    let mut connection = Connection::new().unwrap();
-    connection.send(verts.readonly(), faces.readonly());
-    // send(verts.readonly(), faces.readonly());
-
-    Ok(())
-}
 
 #[pymodule]
 fn ssmv(_py: Python<'_>, m: &PyModule) -> PyResult<()>{
     m.add_function(wrap_pyfunction!(run, m)?)?;
-    // m.add_function(wrap_pyfunction!(send, m)?)?;
     m.add_class::<Connection>()?;
-    m.add_function(wrap_pyfunction!(test, m)?)?;
-    m.add("CONNECTION", Connection::new()?)?;
     Ok(()) 
 }
