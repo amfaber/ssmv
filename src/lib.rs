@@ -1,88 +1,40 @@
-use std::{sync::{Arc, mpsc::{channel, Receiver, Sender, TryRecvError}}, thread};
+pub mod comms;
+
+use std::{sync::mpsc::{channel, Receiver, Sender}, thread};
 
 use bevy::prelude::*;
-use ndarray::{Array2, Axis};
+use ndarray::Axis;
 use smooth_bevy_cameras::{
     controllers::{
-        orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
+        // orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
         unreal::{UnrealCameraBundle, UnrealCameraController, UnrealCameraPlugin},
-        fps::{FpsCameraBundle, FpsCameraController, FpsCameraPlugin},
+        // fps::{FpsCameraBundle, FpsCameraController, FpsCameraPlugin},
     },
-    LookTransform, LookTransformBundle, LookTransformPlugin, Smoother,
+    LookTransform, LookTransformPlugin,
 };
-use std::net::{TcpListener, TcpStream};
-use std::io::{Read, Write};
+pub use comms::*;
+pub use bevy::prelude::Vec3;
 
-fn listen(sender: Sender<Message>){
-    let listener = TcpListener::bind("localhost:6142").unwrap();
-    loop{
-        match listener.accept(){
-            Ok((mut stream, _addr)) => {
-                loop{
-                    let recv = Message::receive(&mut stream);
-                    match recv.unwrap(){
-                        Some(message) => sender.send(message).unwrap(),
-                        None => break
-                    }
-                }
-                // handle_client(stream, &sender)
-            },
-            Err(e) => eprintln!("errored"),
-        }
-    }
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-pub enum Message{
-    Mesh{
-        verts: Array2<f32>,
-        faces: Array2<i32>,
-    }
-}
-
-impl Message{
-    pub fn send(&self, stream: &mut TcpStream) -> anyhow::Result<()>{
-        let bytes = bincode::serialize(self)?;
-        let len = usize::to_le_bytes(bytes.len());
-        stream.write_all(&len)?;
-        stream.write_all(&bytes)?;
-
-        Ok(())
-    }
-
-    pub fn receive(stream: &mut TcpStream) -> anyhow::Result<Option<Self>>{
-        let mut len = [0; std::mem::size_of::<usize>()];
-        let n_read = stream.read(&mut len)?;
-        if n_read == 0{
-            return Ok(None)
-        }
-        let len = usize::from_le_bytes(len);
-        let mut message = vec![0; len];
-        stream.read(&mut message)?;
-        let message: Self = bincode::deserialize(&message)?;
-        Ok(Some(message))
-    }
-}
 
 pub fn run_rust() {
 
-    let (sender, receiver): (Sender<Message>, Receiver<Message>) = channel();
+    let (msender, mreceiver) = channel::<Message>();
+    let (rsender, rreceiver) = channel::<Response>();
     
 
     thread::spawn(||{
-        listen(sender)
+        listen(msender, rreceiver)
     });
     
     App::new()
         .add_startup_system(startup)
         .add_system(bevy_listen)
-        .insert_non_send_resource(receiver)
+        .insert_non_send_resource(mreceiver)
+        .insert_non_send_resource(rsender)
         .add_plugins(DefaultPlugins)
         .add_plugin(LookTransformPlugin)
-        .add_plugin(OrbitCameraPlugin::default())
         .add_plugin(UnrealCameraPlugin::default())
-        .add_plugin(FpsCameraPlugin::default())
-        .insert_resource(ClearColor(Color::rgba(0.4, 0.4, 0.4, 0.)))
+        // .insert_resource(ClearColor(Color::rgba(0.4, 0.4, 0.4, 0.)))
         .run();
 }
 
@@ -95,38 +47,55 @@ fn startup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ){
     
-    // commands
-    //     .spawn(Camera3dBundle::default())
-    //     .insert(UnrealCameraBundle::new(
-    //         UnrealCameraController::default(),
-    //         Vec3::new(-2., 5., 5.),
-    //         Vec3::new(
-    //             0., 0., 0.,
-    //         ),
-    //         Vec3::Y,
-    //     ));
-
     commands
         .spawn(Camera3dBundle::default())
-        .insert(OrbitCameraBundle::new(
-            OrbitCameraController::default(),
-            Vec3::new(-2., 5., 5.),
+        .insert(UnrealCameraBundle::new(
+            UnrealCameraController::default(),
+            Vec3::new(-1., -1., -1.),
             Vec3::new(
                 0., 0., 0.,
             ),
             Vec3::Y,
         ));
 
+    
+    commands
+        .spawn(DirectionalLightBundle{
+            directional_light: DirectionalLight{
+                illuminance: 10000.,
+                shadows_enabled: true,
+                ..Default::default()
+            },
+            transform: Transform::from_xyz(0., 0., 1.),
+            ..default()
+        });
+
+
+    commands
+        .insert_resource(AmbientLight{
+            color: Color::WHITE,
+            brightness: 0.2,
+        });
+    // light
+    // PointLight::default()
+    // commands.spawn(PointLightBundle {
+    //     point_light: PointLight {
+    //         intensity: 3000.0,
+    //         shadows_enabled: true,
+    //         range: 100.,
+    //         ..default()
+    //     },
+    //     transform: Transform::from_xyz(-4.0, 8.0, 4.0),
+    //     ..default()
+    // });
+    
     let mut mesh = Mesh::new(bevy::render::render_resource::PrimitiveTopology::TriangleList);
-    // let full_verts: Vec<Vec3> = faces.0.iter().map(|&index| {
-    //     let vert = verts.0.index_axis(Axis(0), index as usize);
-    //     Vec3::new(vert[0], vert[1], vert[2])
-    // }).collect();
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, vec![Vec3::new(0., 0., 0.)]);
     let handle = meshes.add(mesh);
 
-    let mut mat: StandardMaterial = Color::rgb(0.8, 0.7, 0.6).into();
+    let mut mat: StandardMaterial = Color::rgb(0.3, 0.5, 0.3).into();
     mat.cull_mode = None;
+    mat.double_sided = true;
     commands.spawn((TheMesh, PbrBundle {
         mesh: handle.clone(),
         material: materials.add(mat),
@@ -135,25 +104,43 @@ fn startup(
 }
 
 fn bevy_listen(
-    nonsend: NonSend<Receiver<Message>>,
+    receiver: NonSend<Receiver<Message>>,
+    sender: NonSend<Sender<Response>>,
     query: Query<(&TheMesh, &Handle<Mesh>)>,
+    mut camera: Query<(&Camera, &mut LookTransform)>,
     mut meshes: ResMut<Assets<Mesh>>,
-){
     
-    match nonsend.try_recv(){
+){
+    match receiver.try_recv(){
         Ok(recv) => {
-            // dbg!(&recv);
             let (_, handle) = query.single();
             let mesh = meshes.get_mut(handle).unwrap();
+            let (_, mut lookat) = camera.single_mut();
             
             match recv{
                 Message::Mesh { verts, faces } => {
-                    let full_verts: Vec<Vec3> = faces.iter().map(|&index| {
+                    let full_verts: Vec<Vec3> = faces.as_slice().unwrap().iter().rev().map(|&index| {
                         let vert = verts.index_axis(Axis(0), index as usize);
                         Vec3::new(vert[0], vert[1], vert[2])
                     }).collect();
-            
+                    let com = full_verts.iter().sum::<Vec3>() / full_verts.len() as f32;
+                    lookat.target = com;
+                    
                     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, full_verts);
+                    mesh.compute_flat_normals();
+                },
+                Message::SetView(View{ position, look_at }) => {
+                    lookat.target = look_at;
+                    lookat.eye = position;
+                },
+                Message::RequestView => {
+                    let position = lookat.eye;
+                    let look_at = lookat.target;
+                    let response = Response::GetView(View{
+                        position,
+                        look_at,
+                    });
+                    sender.send(response).unwrap()
                 },
             }
             

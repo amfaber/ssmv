@@ -3,7 +3,7 @@ use std::net::TcpStream;
 // use std::io::Write;
 
 use ndarray::array;
-use super_simple_mesh_viewer::Message;
+use super_simple_mesh_viewer::{Message, Communication};
 
 fn send(){
 
