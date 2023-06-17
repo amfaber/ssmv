@@ -1,4 +1,5 @@
 pub mod comms;
+mod camera;
 
 use std::{sync::mpsc::{channel, Receiver, Sender}, thread};
 
@@ -6,7 +7,7 @@ use bevy::prelude::*;
 use ndarray::Axis;
 use smooth_bevy_cameras::{
     controllers::{
-        // orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
+        orbit::{OrbitCameraBundle, OrbitCameraController, OrbitCameraPlugin},
         unreal::{UnrealCameraBundle, UnrealCameraController, UnrealCameraPlugin},
         // fps::{FpsCameraBundle, FpsCameraController, FpsCameraPlugin},
     },
@@ -34,6 +35,7 @@ pub fn run_rust() {
         .add_plugins(DefaultPlugins)
         .add_plugin(LookTransformPlugin)
         .add_plugin(UnrealCameraPlugin::default())
+        .add_plugin(OrbitCameraPlugin::default())
         // .insert_resource(ClearColor(Color::rgba(0.4, 0.4, 0.4, 0.)))
         .run();
 }
@@ -47,10 +49,21 @@ fn startup(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ){
     
+    // commands
+    //     .spawn(Camera3dBundle::default())
+    //     .insert(UnrealCameraBundle::new(
+    //         UnrealCameraController::default(),
+    //         Vec3::new(-1., -1., -1.),
+    //         Vec3::new(
+    //             0., 0., 0.,
+    //         ),
+    //         Vec3::Y,
+    //     ));
+
     commands
         .spawn(Camera3dBundle::default())
-        .insert(UnrealCameraBundle::new(
-            UnrealCameraController::default(),
+        .insert(OrbitCameraBundle::new(
+            OrbitCameraController::default(),
             Vec3::new(-1., -1., -1.),
             Vec3::new(
                 0., 0., 0.,

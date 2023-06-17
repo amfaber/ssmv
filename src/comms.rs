@@ -35,6 +35,8 @@ pub fn listen(sender: Sender<Message>, receiver: Receiver<Response>){
 pub trait Communication: Serialize + DeserializeOwned + Send{
     fn send(&self, stream: &mut TcpStream) -> anyhow::Result<()>{
         let bytes = bincode::serialize(self)?;
+        // let str = serde_json::to_string_pretty(self)?;
+        // let bytes = str.as_bytes();
         let len = usize::to_le_bytes(bytes.len());
         stream.write_all(&len)?;
         stream.write_all(&bytes)?;
@@ -49,10 +51,13 @@ pub trait Communication: Serialize + DeserializeOwned + Send{
             return Ok(None)
         }
         let len = usize::from_le_bytes(len);
-		dbg!(len);
         let mut message = vec![0; len];
-        stream.read(&mut message)?;
+        stream.read_exact(&mut message)?;
         let message: Self = bincode::deserialize(&message)?;
+        // let str = std::str::from_utf8(&message[..]).unwrap();
+        // eprintln!("{}", str);
+        // let message: Self = serde_json::from_slice(&message)?;
+
         Ok(Some(message))
     }
 }

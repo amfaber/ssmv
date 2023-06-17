@@ -32,6 +32,7 @@ impl Connection{
                     .arg("import ssmv; ssmv.run()")
                     .stdout(Stdio::null())
                     .spawn().unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(20));
                 TcpStream::connect_timeout(&addr, boot).unwrap()
                 // message.send(&mut stream).unwrap();
             },
