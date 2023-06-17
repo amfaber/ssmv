@@ -1,4 +1,4 @@
-use std::{net::{TcpStream, ToSocketAddrs}, process::Stdio};
+use std::{net::{TcpStream, ToSocketAddrs, SocketAddr}, process::Stdio, time::{Duration, Instant}};
 
 use super_simple_mesh_viewer::{run_rust, Message, Communication, Response, View, Vec3};
 use numpy::{PyReadonlyArray2, PyArray, ndarray::Array, PyArray2, PyReadonlyArray1};
@@ -14,6 +14,24 @@ fn run() {
 #[pyclass]
 pub struct Connection{
     tcp: Option<TcpStream>,
+}
+
+
+fn retry(addr: &SocketAddr, timeout: Duration) -> Result<TcpStream, std::io::Error>{
+    let start = std::time::Instant::now();
+    let mut out = None;
+    while Instant::now().duration_since(start) < timeout{
+        out = Some(TcpStream::connect(addr));
+        match out.as_ref().unwrap(){
+            Ok(_) => {
+                break
+            },
+            Err(_) => {
+                std::thread::sleep(Duration::from_millis(50));
+            },
+        }
+    }
+    out.unwrap()
 }
 
 impl Connection{
@@ -32,9 +50,7 @@ impl Connection{
                     .arg("import ssmv; ssmv.run()")
                     .stdout(Stdio::null())
                     .spawn().unwrap();
-                std::thread::sleep(std::time::Duration::from_millis(20));
-                TcpStream::connect_timeout(&addr, boot).unwrap()
-                // message.send(&mut stream).unwrap();
+                retry(&addr, boot).unwrap()
             },
         };
         self.tcp = Some(tcp);
