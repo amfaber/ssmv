@@ -1,10 +1,10 @@
-use smooth_bevy_cameras::{LookTransform, LookTransformBundle, LookAngles, Smoother};
+use smooth_bevy_cameras::{LookAngles, LookTransform, LookTransformBundle, Smoother};
 
 use bevy::{
     app::prelude::*,
     ecs::{bundle::Bundle, prelude::*},
     input::{
-        mouse::{MouseMotion, MouseWheel},
+        mouse::{MouseMotion, MouseScrollUnit, MouseWheel},
         prelude::*,
     },
     math::prelude::*,
@@ -17,13 +17,13 @@ pub struct MyCameraPlugin {
     pub override_input_system: bool,
 }
 
-impl MyCameraPlugin {
-    pub fn new(override_input_system: bool) -> Self {
-        Self {
-            override_input_system,
-        }
-    }
-}
+// impl MyCameraPlugin {
+//     pub fn new(override_input_system: bool) -> Self {
+//         Self {
+//             override_input_system,
+//         }
+//     }
+// }
 
 impl Plugin for MyCameraPlugin {
     fn build(&self, app: &mut App) {
@@ -86,6 +86,11 @@ pub struct MyCameraController {
 
     /// The greater, the slower to follow input
     pub smoothing_weight: f32,
+
+    pub pixels_per_line: f32,
+    pub mouse_wheel_zoom_sensitivity: f32,
+
+    // pub grid: ,
 }
 
 impl Default for MyCameraController {
@@ -98,14 +103,18 @@ impl Default for MyCameraController {
             keyboard_mvmt_sensitivity: 100.0,
             keyboard_mvmt_wheel_sensitivity: 5.0,
             smoothing_weight: 0.7,
+            pixels_per_line: 53.0,
+            mouse_wheel_zoom_sensitivity: 0.1,
         }
     }
 }
 
+#[derive(Debug)]
 pub enum ControlEvent {
-    Locomotion(Vec2),
-    Rotate(Vec2),
-    TranslateEye(Vec2),
+    Locomotion { translation: Vec3, rotation: Vec2 },
+    Orbit { rotation: Vec2, zoom: f32 },
+    // Rotate(Vec2),
+    // TranslateEye(Vec3),
 }
 
 pub fn default_input_map(
@@ -142,86 +151,110 @@ pub fn default_input_map(
 
     let mut wheel_delta = 0.0;
     for event in mouse_wheel_reader.iter() {
-        wheel_delta += event.x + event.y;
+        wheel_delta += match event.unit {
+            MouseScrollUnit::Line => event.y,
+            MouseScrollUnit::Pixel => event.y / controller.pixels_per_line,
+        };
     }
 
-    let mut panning_dir = Vec2::ZERO;
-    let mut translation_dir = Vec2::ZERO; // y is forward/backward axis, x is rotation around Z
+    // let mut panning_dir = Vec2::ZERO;
+    // let mut translation_dir = Vec2::ZERO; // y is forward/backward axis, x is rotation around Z
+
+    // Relative to the cameras coordinates.
+    // x = left/right
+    // y = down/up
+    // z = backward/forward
+    let mut locomotion_dir = Vec3::ZERO;
 
     for key in keyboard.get_pressed() {
         match key {
-            KeyCode::E => {
-                panning_dir.y += 1.0;
-            }
-
-            KeyCode::Q => {
-                panning_dir.y -= 1.0;
-            }
-
             KeyCode::A => {
-                panning_dir.x -= 1.0;
+                locomotion_dir.x -= 1.0;
             }
 
             KeyCode::D => {
-                panning_dir.x += 1.0;
+                locomotion_dir.x += 1.0;
+            }
+
+            KeyCode::Q => {
+                locomotion_dir.y -= 1.0;
+            }
+
+            KeyCode::E => {
+                locomotion_dir.y += 1.0;
             }
 
             KeyCode::S => {
-                translation_dir.y -= 1.0;
+                locomotion_dir.z -= 1.0;
             }
 
             KeyCode::W => {
-                translation_dir.y += 1.0;
+                locomotion_dir.z += 1.0;
             }
 
             _ => {}
         }
     }
 
-    let mut panning = Vec2::ZERO;
-    let mut locomotion = Vec2::ZERO;
+    let mut locomotion = Vec3::ZERO;
 
     // If any of the mouse button are pressed; read additional signals from the keyboard for panning
     // and locomotion along camera view axis
-    if left_pressed || middle_pressed || right_pressed {
-        panning += keyboard_mvmt_sensitivity * panning_dir;
 
-        if translation_dir.y != 0.0 {
-            locomotion.y += keyboard_mvmt_sensitivity * translation_dir.y;
-        }
+    // let mut zoom = 1.0;
+    // for event in mouse_wheel_reader.iter() {
+    //     // scale the event magnitude per pixel or per line
+    //     let scroll_amount = match event.unit {
+    //         MouseScrollUnit::Line => event.y,
+    //         MouseScrollUnit::Pixel => event.y / controller.pixels_per_line,
+    //     };
+    //     dbg!(scroll_amount);
+    //     zoom *= 1.0 - scroll_amount * controller.mouse_wheel_zoom_sensitivity;
+    // }
 
-        // keyboard_mvmt_sensitivity += keyboard_mvmt_wheel_sensitivity * wheel_delta;
+    if right_pressed || keyboard.pressed(KeyCode::LShift) || keyboard.pressed(KeyCode::RShift) {
+        locomotion += keyboard_mvmt_sensitivity * locomotion_dir;
+        keyboard_mvmt_sensitivity += keyboard_mvmt_wheel_sensitivity * wheel_delta;
         controller.keyboard_mvmt_sensitivity = keyboard_mvmt_sensitivity.max(0.01);
-    }
-    // Otherwise, if any scrolling is happening, do locomotion along camera view axis
-    else if wheel_delta != 0.0 {
-        locomotion.y += wheel_translate_sensitivity * wheel_delta;
+        events.send(ControlEvent::Locomotion {
+            translation: locomotion,
+            rotation: mouse_rotate_sensitivity * cursor_delta,
+        });
+    } else if left_pressed {
+        let rotation = mouse_rotate_sensitivity * cursor_delta;
+        let zoom = 1.0 - wheel_delta * controller.mouse_wheel_zoom_sensitivity;
+        // let mut zoom = 1.0;
+        // for event in mouse_wheel_reader.iter() {
+        //     // scale the event magnitude per pixel or per line
+        //     let scroll_amount = match event.unit {
+        //         MouseScrollUnit::Line => event.y,
+        //         MouseScrollUnit::Pixel => event.y / controller.pixels_per_line,
+        //     };
+        //     dbg!(scroll_amount);
+        //     zoom *= 1.0 - scroll_amount * controller.mouse_wheel_zoom_sensitivity;
+        // }
+
+        events.send(ControlEvent::Orbit { rotation, zoom });
     }
 
     // You can also pan using the mouse only; add those signals to existing panning
-    if middle_pressed || (left_pressed && right_pressed) {
-        panning += mouse_translate_sensitivity * cursor_delta;
-    }
+    // if middle_pressed || (left_pressed && right_pressed) {
+    //     panning += mouse_translate_sensitivity * cursor_delta;
+    // }
 
     // When left only is pressed, mouse movements add up to the "Unreal locomotion" scheme
-    if left_pressed && !middle_pressed && !right_pressed {
-        locomotion.x = mouse_rotate_sensitivity.x * cursor_delta.x;
-        locomotion.y -= mouse_translate_sensitivity.y * cursor_delta.y;
-    }
+    // if left_pressed && !middle_pressed && !right_pressed {
+    //     locomotion.x = mouse_rotate_sensitivity.x * cursor_delta.x;
+    //     locomotion.y -= mouse_translate_sensitivity.y * cursor_delta.y;
+    // }
 
-    if !left_pressed && !middle_pressed && right_pressed {
-        events.send(ControlEvent::Rotate(
-            mouse_rotate_sensitivity * cursor_delta,
-        ));
-    }
+    // if panning.length_squared() > 0.0 {
+    //     events.send(ControlEvent::TranslateEye(panning));
+    // }
 
-    if panning.length_squared() > 0.0 {
-        events.send(ControlEvent::TranslateEye(panning));
-    }
-
-    if locomotion.length_squared() > 0.0 {
-        events.send(ControlEvent::Locomotion(locomotion));
-    }
+    // if locomotion.length_squared() > 0.0 {
+    //     events.send(ControlEvent::Locomotion(locomotion));
+    // }
 }
 
 pub fn control_system(
@@ -240,32 +273,54 @@ pub fn control_system(
         Some(safe_look_vector) => safe_look_vector,
         None => return,
     };
-    let mut look_angles = LookAngles::from_vector(look_vector);
 
     let dt = time.delta_seconds();
     for event in events.iter() {
         match event {
-            ControlEvent::Locomotion(delta) => {
-                // Translates forward/backward and rotates about the Y axis.
-                look_angles.add_yaw(dt * -delta.x);
-                transform.eye += dt * delta.y * look_vector;
-            }
-            ControlEvent::Rotate(delta) => {
+            // ControlEvent::Locomotion(delta) => {
+            //     // Translates forward/backward and rotates about the Y axis.
+            //     look_angles.add_yaw(dt * -delta.x);
+            //     dbg!(delta.x);
+            //     transform.eye += dt * delta.y * look_vector;
+            // }
+            ControlEvent::Locomotion {
+                translation,
+                rotation,
+            } => {
+                let mut look_angles = LookAngles::from_vector(look_vector);
+                let radius = transform.radius();
                 // Rotates with pitch and yaw.
-                look_angles.add_yaw(dt * -delta.x);
-                look_angles.add_pitch(dt * -delta.y);
-            }
-            ControlEvent::TranslateEye(delta) => {
+                look_angles.add_yaw(dt * -rotation.x);
+                look_angles.add_pitch(dt * -rotation.y);
+
                 let yaw_rot = Quat::from_axis_angle(Vec3::Y, look_angles.get_yaw());
-                let rot_x = yaw_rot * Vec3::X;
+                let left_right = yaw_rot * Vec3::X;
+
+                // let pitch_rot = Quat::from_axis_angle(Vec3::X, look_angles.get_pitch());
+                // let rot_y = pitch_rot * yaw_rot * Vec3::Y;
+                let back_forward = look_vector;
+                let down_up = back_forward.cross(left_right);
 
                 // Translates up/down (Y) and left/right (X).
-                transform.eye -= dt * delta.x * rot_x - Vec3::new(0.0, dt * delta.y, 0.0);
+                // transform.eye += dt * -delta.x * rot_x + Vec3::new(0.0, dt * delta.y, 0.0);
+                transform.eye += dt * -translation.x * left_right
+                    + dt * translation.y * down_up
+                    + dt * back_forward * translation.z;
+
+                transform.target = transform.eye + radius * look_angles.unit_vector();
+            }
+
+            ControlEvent::Orbit { rotation, zoom } => {
+                let mut look_angles = LookAngles::from_vector(-look_vector);
+                look_angles.add_yaw(dt * -rotation.x);
+                look_angles.add_pitch(dt * rotation.y);
+                // dbg!(zoom);
+
+                let new_radius = (zoom * transform.radius()).min(1000000.0).max(0.001);
+                transform.eye = transform.target + new_radius * look_angles.unit_vector();
             }
         }
     }
 
-    look_angles.assert_not_looking_up();
-
-    transform.target = transform.eye + transform.radius() * look_angles.unit_vector();
+    // look_angles.assert_not_looking_up();
 }
